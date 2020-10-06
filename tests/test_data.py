@@ -6,6 +6,8 @@ import pytest
 import schnetpack as spk
 from tests.assertions import assert_dataset_equal
 from numpy.testing import assert_array_almost_equal
+import ase
+from ase.db import connect
 
 from tests.fixtures import *
 
@@ -75,26 +77,6 @@ def test_statistics_calculation(example_loader, dataset_stats, main_properties):
     for pname in main_properties:
         assert_array_almost_equal(means[pname].numpy(), dataset_stats[0][pname])
         assert_array_almost_equal(stds[pname].numpy(), dataset_stats[1][pname])
-
-
-def test_dataset(example_dataset, tmp_dbpath, available_properties, num_data):
-    assert example_dataset.available_properties == available_properties
-    assert example_dataset.__len__() == num_data
-
-    # test valid path exists but wrong properties
-    too_many = available_properties + ["invalid"]
-    not_all = available_properties[:-1]
-    wrong_prop = available_properties[:-1] + ["invalid"]
-    with pytest.raises(spk.data.AtomsDataError):
-        dataset = spk.data.AtomsData(tmp_dbpath, available_properties=too_many)
-    with pytest.raises(spk.data.AtomsDataError):
-        dataset = spk.data.AtomsData(tmp_dbpath, available_properties=not_all)
-    with pytest.raises(spk.data.AtomsDataError):
-        dataset = spk.data.AtomsData(tmp_dbpath, available_properties=wrong_prop)
-
-    # test valid path, but no properties
-    dataset = spk.data.AtomsData(tmp_dbpath)
-    assert set(dataset.available_properties) == set(available_properties)
 
 
 def test_extension_check():
@@ -200,3 +182,70 @@ def test_ani1(ani1_path, ani1_dataset):
     """
     atoms_data = spk.AtomsData(ani1_path)
     assert_dataset_equal(atoms_data, ani1_dataset)
+
+
+def test_automated_metadata(random_tmp_db_path, example_data, available_properties,
+                            num_data):
+    # create empty dataset
+    dataset = spk.data.AtomsData(random_tmp_db_path)
+    assert dataset.get_metadata() == dict(
+        available_properties=None,
+        units=None,
+        spk_version=spk.__version__,
+        ase_version=ase.__version__,
+        atomref=None,
+    )
+
+    # add some systems
+    atoms = [d[0] for d in example_data]
+    properties = [d[1] for d in example_data]
+    dataset.add_systems(atoms, properties)
+
+    # test if number of atoms is correct
+    assert len(dataset) == num_data
+
+    # test if all available_properties are set correctly
+    assert dataset.available_properties == available_properties
+    assert dataset.get_metadata("available_properties") == available_properties
+    with connect(dataset.dbpath) as conn:
+        assert set(conn.metadata["available_properties"]) == available_properties
+
+    # add a system with missing properties
+    reduced_available_properties = list(available_properties)[:-1]
+    reduced_datapoint = {
+        k: v for k, v in properties[0].items() if k in reduced_available_properties
+    }
+    dataset.add_system(atoms[0], **reduced_datapoint)
+
+    # test if available properties has changed to reduced available properties
+    reduced_available_properties = set(reduced_available_properties)
+    assert dataset.available_properties == reduced_available_properties
+    assert dataset.get_metadata("available_properties") == reduced_available_properties
+    with connect(dataset.dbpath) as conn:
+        assert set(conn.metadata["available_properties"]) == \
+               reduced_available_properties
+
+    # add system with all available properties
+    dataset.add_system(atoms[0], **properties[0])
+
+    # test if available properties is still reduced
+    assert dataset.available_properties == reduced_available_properties
+    assert dataset.get_metadata("available_properties") == reduced_available_properties
+    with connect(dataset.dbpath) as conn:
+        assert set(conn.metadata["available_properties"]) == \
+               reduced_available_properties
+
+
+def test_database_proptection(empty_dataset, example_data):
+    # lock database and test if it throws error
+    empty_dataset.protected = True
+
+    # prepare data
+    atoms = [d[0] for d in example_data]
+    properties = [d[1] for d in example_data]
+
+    # try to write data
+    with pytest.raises(spk.data.AtomsDataError):
+        empty_dataset.add_system(atoms[0], **properties[0])
+    with pytest.raises(spk.data.AtomsDataError):
+        empty_dataset.add_systems(atoms, properties)

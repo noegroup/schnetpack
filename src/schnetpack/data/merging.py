@@ -65,15 +65,14 @@ def save_dataset(dbpath, dataset, overwrite=False):
             "dbpath."
         )
 
-    # build metadata
-    metadata = dict()
-    metadata["atomref"] = dataset.atomref
-    metadata["available_properties"] = dataset.available_properties
+    # build empty dataset
+    new_dataset = AtomsData(dbpath)
+    new_dataset.set_metadata(dataset.get_metadata())
 
-    # write dataset
+    # get data
     with connect(dbpath) as conn:
         # write metadata
-        conn.metadata = metadata
+        conn.metadata = dataset.get_metadata()
         # write datapoints
         for idx in range(len(dataset)):
             atms, data = dataset.get_properties(idx)

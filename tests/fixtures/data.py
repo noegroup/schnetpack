@@ -3,11 +3,14 @@ import pytest
 import numpy as np
 from ase import Atoms
 import schnetpack as spk
+import random
+import string
 
 
 __all__ = [
     # general
     "tmp_data_dir",
+    "random_tmp_db_path",
     "tmp_dbpath",
     "partition_names",
     "min_atoms",
@@ -59,6 +62,12 @@ def tmp_data_dir(tmpdir_factory):
     return tmpdir_factory.mktemp("data")
 
 
+@pytest.fixture(scope="module")
+def random_tmp_db_path(tmp_data_dir):
+    db_name = "".join([random.choice(string.ascii_letters) for _ in range(10)]) + ".db"
+    return os.path.join(tmp_data_dir, db_name)
+
+
 @pytest.fixture(scope="session")
 def tmp_dbpath(example_dataset):
     return example_dataset.dbpath
@@ -99,14 +108,16 @@ def n_test_set(num_data, n_train_set, n_validation_set):
 def empty_dataset(tmp_data_dir, available_properties):
     return spk.data.AtomsData(
         os.path.join(str(tmp_data_dir), "empty_database4tests.db"),
-        available_properties=available_properties,
     )
 
 
 @pytest.fixture(scope="session")
 def property_shapes():
     return dict(
-        property1=[1], derivative1=[-1, 3], contributions1=[-1, 1], property2=[1],
+        property1=[1],
+        derivative1=[-1, 3],
+        contributions1=[-1, 1],
+        property2=[1],
     )
 
 
@@ -137,7 +148,7 @@ def example_data(min_atoms, max_atoms, num_data, property_shapes):
 
 @pytest.fixture(scope="session")
 def available_properties(property_shapes):
-    return list(property_shapes.keys())
+    return set(property_shapes.keys())
 
 
 @pytest.fixture(scope="session")

@@ -215,7 +215,10 @@ def gaussion_smearing_layer(n_gaussians, trainable_gaussians):
 
 @pytest.fixture
 def cfconv_layer(
-    n_atom_basis, n_filters, schnet_interaction, cutoff_layer,
+    n_atom_basis,
+    n_filters,
+    schnet_interaction,
+    cutoff_layer,
 ):
     return spk.nn.CFConv(
         n_in=n_atom_basis,
