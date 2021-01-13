@@ -4,10 +4,12 @@ import torch.nn as nn
 from schnetpack.nn.base import Dense
 from schnetpack import Properties
 from schnetpack.nn.cfconv import CFConv
-from schnetpack.nn.cutoff import CosineCutoff
-from schnetpack.nn.acsf import GaussianSmearing
+from schnetpack.nn.cutoff import CosineCutoff, get_cutoff_by_string
+from schnetpack.nn.acsf import GaussianSmearing, RadialBesselBasis
 from schnetpack.nn.neighbors import AtomDistances
 from schnetpack.nn.activations import shifted_softplus
+
+from schnext.nn.basis import RadialFourierCoulombBasis
 
 
 class SchNetInteraction(nn.Module):
@@ -86,7 +88,7 @@ class SchNet(nn.Module):
         n_filters (int, optional): number of filters used in continuous-filter convolution
         n_interactions (int, optional): number of interaction blocks.
         cutoff (float, optional): cutoff radius.
-        n_gaussians (int, optional): number of Gaussian functions used to expand
+        n_rbf (int, optional): number of Gaussian functions used to expand
             atomic distances.
         normalize_filter (bool, optional): if True, divide aggregated filter by number
             of neighbors over which convolution is applied.
@@ -99,7 +101,7 @@ class SchNet(nn.Module):
         cutoff_network (nn.Module, optional): cutoff layer.
         trainable_gaussians (bool, optional): If True, widths and offset of Gaussian
             functions are adjusted during training process.
-        distance_expansion (nn.Module, optional): layer for expanding interatomic
+        radial_basis (nn.Module, optional): layer for expanding interatomic
             distances in a basis.
         charged_systems (bool, optional):
 
@@ -123,17 +125,18 @@ class SchNet(nn.Module):
         n_filters=128,
         n_interactions=3,
         cutoff=5.0,
-        n_gaussians=25,
+        n_rbf=25,
         normalize_filter=False,
         coupled_interactions=False,
         return_intermediate=False,
         max_z=100,
         cutoff_network=CosineCutoff,
         trainable_gaussians=False,
-        distance_expansion=None,
+        radial_basis=None,
         charged_systems=False,
     ):
         super(SchNet, self).__init__()
+        cutoff_network = get_cutoff_by_string(cutoff_network)
 
         self.n_atom_basis = n_atom_basis
         # make a lookup table to store embeddings for each element (up to atomic
@@ -144,12 +147,26 @@ class SchNet(nn.Module):
         self.distances = AtomDistances()
 
         # layer for expanding interatomic distances in a basis
-        if distance_expansion is None:
-            self.distance_expansion = GaussianSmearing(
-                0.0, cutoff, n_gaussians, trainable=trainable_gaussians
-            )
-        else:
-            self.distance_expansion = distance_expansion
+        try:
+            import hydra
+            self.distance_expansion = hydra.utils.instantiate(radial_basis)
+        except Exception as e:
+            print('#######################')
+            print(e)
+            if radial_basis is None:
+                self.distance_expansion = GaussianSmearing(
+                    0.0, cutoff, n_rbf, trainable=trainable_gaussians
+                )
+            elif radial_basis == 'bessel':
+                self.distance_expansion = RadialBesselBasis(
+                    cutoff, n_rbf, trainable=trainable_gaussians
+                )
+            elif radial_basis == 'fourier':
+                self.distance_expansion = RadialFourierCoulombBasis(
+                    cutoff=cutoff, n_rbf=n_rbf
+                )
+            else:
+                self.distance_expansion = radial_basis
 
         # block for computing interaction
         if coupled_interactions:
@@ -158,7 +175,7 @@ class SchNet(nn.Module):
                 [
                     SchNetInteraction(
                         n_atom_basis=n_atom_basis,
-                        n_spatial_basis=n_gaussians,
+                        n_spatial_basis=n_rbf,
                         n_filters=n_filters,
                         cutoff_network=cutoff_network,
                         cutoff=cutoff,
@@ -173,7 +190,7 @@ class SchNet(nn.Module):
                 [
                     SchNetInteraction(
                         n_atom_basis=n_atom_basis,
-                        n_spatial_basis=n_gaussians,
+                        n_spatial_basis=n_rbf,
                         n_filters=n_filters,
                         cutoff_network=cutoff_network,
                         cutoff=cutoff,
@@ -225,7 +242,8 @@ class SchNet(nn.Module):
             positions, neighbors, cell, cell_offset, neighbor_mask=neighbor_mask
         )
         # expand interatomic distances (for example, Gaussian smearing)
-        f_ij = self.distance_expansion(r_ij)
+        f_ij = self.distance_expansion(r_ij[..., None])
+
         # store intermediate representations
         if self.return_intermediate:
             xs = [x]

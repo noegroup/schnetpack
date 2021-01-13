@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn as nn
+import torch.nn.functional as F
 from torch.autograd import grad
 
 import schnetpack
@@ -72,7 +73,7 @@ class Atomwise(nn.Module):
         aggregation_mode="sum",
         n_layers=2,
         n_neurons=None,
-        activation=schnetpack.nn.activations.shifted_softplus,
+        activation=F.silu,
         property="y",
         contributions=None,
         derivative=None,
@@ -96,6 +97,12 @@ class Atomwise(nn.Module):
 
         mean = torch.FloatTensor([0.0]) if mean is None else mean
         stddev = torch.FloatTensor([1.0]) if stddev is None else stddev
+
+        if type(activation) is str:
+            if activation == 'swish':
+                activation = F.silu
+            elif activation == 'softplus':
+                activation = schnetpack.nn.activations.shifted_softplus
 
         # initialize single atom energies
         if atomref is not None:
@@ -217,13 +224,14 @@ class DipoleMoment(Atomwise):
         n_in,
         n_layers=2,
         n_neurons=None,
-        activation=schnetpack.nn.activations.shifted_softplus,
+        activation=F.silu,
         property="y",
         contributions=None,
         predict_magnitude=False,
         mean=None,
         stddev=None,
         outnet=None,
+        atomref=None,
     ):
         self.predict_magnitude = predict_magnitude
         super(DipoleMoment, self).__init__(
@@ -435,7 +443,7 @@ class Polarizability(Atomwise):
         aggregation_mode="sum",
         n_layers=2,
         n_neurons=None,
-        activation=L.shifted_softplus,
+        activation=F.silu,
         property="y",
         isotropic=False,
         create_graph=True,
@@ -561,12 +569,13 @@ class ElectronicSpatialExtent(Atomwise):
         n_in,
         n_layers=2,
         n_neurons=None,
-        activation=schnetpack.nn.activations.shifted_softplus,
+        activation=F.silu,
         property="y",
         contributions=None,
         mean=None,
         stddev=None,
         outnet=None,
+        atomref=None,
     ):
         super(ElectronicSpatialExtent, self).__init__(
             n_in,
