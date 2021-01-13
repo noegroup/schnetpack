@@ -8,6 +8,7 @@ __all__ = [
     "BehlerAngular",
     "GaussianSmearing",
     "RadialDistribution",
+    "RadialBesselBasis",
 ]
 
 
@@ -187,7 +188,8 @@ def gaussian_smearing(distances, offset, widths, centered=False):
         # compute width of Gaussian functions (using an overlap of 1 STDDEV)
         coeff = -0.5 / torch.pow(widths, 2)
         # Use advanced indexing to compute the individual components
-        diff = distances[:, :, :, None] - offset[None, None, None, :]
+        #diff = distances[:, :, :, None] - offset[None, None, None, :]
+        diff = distances[:, None] - offset[None, :]
     else:
         # if Gaussian functions are centered, use offsets to compute widths
         coeff = -0.5 / torch.pow(offset, 2)
@@ -293,3 +295,39 @@ class RadialDistribution(nn.Module):
         radial_distribution = torch.sum(radial_distribution, 2)
         radial_distribution = radial_distribution.view(nbatch, natoms, -1)
         return radial_distribution
+
+
+class RadialBesselBasis(nn.Module):
+    r"""Bessel functions for radial basis expansion.
+
+    Args:
+
+
+    """
+
+    def __init__(self, cutoff: float, num_rbf: int = 16, trainable: bool = False):
+        super(RadialBesselBasis, self).__init__()
+        # compute offset and width of Gaussian functions
+        self.num_rbf = num_rbf
+        self.cutoff = cutoff
+
+        n = torch.arange(1, num_rbf+1)
+        if trainable:
+            self.n = nn.Parameter(n)
+        else:
+            self.register_buffer("n", n)
+
+    def forward(self, distances):
+        """
+        Args:
+            distances (torch.Tensor): interatomic distances of (N_b x N_at x N_nbh) shape.
+        """
+        distances = distances[:, :, :, None]
+        scaled_dist = self.n[None, None, None, :] * math.pi / self.cutoff * distances
+        norm = torch.where(distances == 0, torch.tensor(1.0, device=distances.device), distances)
+        rbf = (
+            torch.sin(scaled_dist)
+            / norm
+        )
+        rbf *= math.sqrt(2.0 / self.cutoff)
+        return rbf
