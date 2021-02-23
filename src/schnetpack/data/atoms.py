@@ -327,7 +327,12 @@ class AtomsData(Dataset):
         # extract properties
         properties = {}
         for pname in self.load_only:
-            properties[pname] = torch.FloatTensor(row.data[pname].copy())
+            value = row.data[pname]
+            try:
+                value = value.copy()
+            except AttributeError:
+                pass
+            properties[pname] = torch.tensor(value)
 
         # extract/calculate structure
         properties = _convert_atoms(
